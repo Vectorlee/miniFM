@@ -21,6 +21,8 @@ epoch = 3
 batch_size = 2048
 device = "cuda" if torch.cuda.is_available() else 'cpu'
 
+torch.set_float32_matmul_precision('high')
+
 model = FlowMatching(FMConfig())
 model = torch.compile(model)
 model = model.to(device)
@@ -48,13 +50,14 @@ for i in range(epoch):
         t_c = t.unsqueeze(-1).unsqueeze(-1).expand(B, C, H, W)
         xt = (1 - t_c) * x0 + t_c * x1
 
-        t = t.to(device)
-        xt = xt.to(device)
-        cls = labels.clone().view(batch_size, 1).type(torch.float32).to(device)
-        logits = model(xt, t, cls)
+        with torch.autocast(device_type=device, dtype=torch.bfloat16):
+            t = t.to(device)
+            xt = xt.to(device)
+            cls = labels.clone().view(batch_size, 1).type(torch.float32).to(device)
+            logits = model(xt, t, cls)
             
-        loss = ((target - logits)**2).mean()
-        loss.backward()
+            loss = ((target - logits)**2).mean()
+            loss.backward()
         
         norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optim.step()
